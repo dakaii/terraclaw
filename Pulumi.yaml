@@ -45,3 +45,19 @@ template:
     terraclaw:vector-search-dimensions:
       description: Vector dimensions for RAG embeddings
       default: 768
+
+    terraclaw:enable-global-lb:
+      description: Provision global HTTPS load balancer (needs SSL certs + DNS; off by default)
+      default: false
+
+    terraclaw:enable-vector-index:
+      description: Create Vertex AI Vector Search index (requires GCS embedding data pipeline)
+      default: false
+
+    terraclaw:allow-unauthenticated:
+      description: Allow unauthenticated access to Cloud Run services (demo/dev)
+      default: true
+
+    terraclaw:image-tag:
+      description: Container image tag for Artifact Registry images
+      default: latest

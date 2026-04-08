@@ -82,11 +82,11 @@ Terraclaw solves these by providing a **fully private, self-improving agent** th
 ## Implementation Plan
 
 ### Phase 1: Core Infrastructure (Week 1)
-- [ ] Set up Pulumi Python project structure
-- [ ] Deploy private DeepSeek inference (vLLM + Cloud Run GPU)
-- [ ] Deploy ZeroClaw runtime with Litestream SQLite backup
-- [ ] Configure Cloud Run services with proper IAM and networking
-- [ ] Test basic agent functionality with private LLM
+- [x] Set up Pulumi Python project structure
+- [x] Deploy private DeepSeek inference (vLLM + Cloud Run GPU)
+- [x] Deploy ZeroClaw runtime with Litestream SQLite backup (Dockerfile + `scripts/build-push.sh`)
+- [x] Configure Cloud Run services with bucket-scoped IAM and (optional) Scheduler → reflection OIDC
+- [ ] Test basic agent functionality with private LLM (needs `OPENAI_API_KEY` / provider secrets on Cloud Run)
 
 ### Phase 2: High Availability (Week 2)
 - [ ] Implement Litestream real-time replication
@@ -133,19 +133,41 @@ Terraclaw solves these by providing a **fully private, self-improving agent** th
 
 ## Getting Started
 
+### Prerequisites
+
+- [Pulumi](https://www.pulumi.com/docs/install/) and [Google Cloud SDK](https://cloud.google.com/sdk) (`gcloud`)
+- GCP project with billing; enable APIs: `run.googleapis.com`, `artifactregistry.googleapis.com`, `cloudscheduler.googleapis.com`, `aiplatform.googleapis.com` (if using Vertex index), `compute.googleapis.com` (only if `terraclaw:enable-global-lb=true`)
+
+### Configure and deploy
+
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/terraclaw
+git clone https://github.com/dakaii/terraclaw.git
 cd terraclaw
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-# Deploy the complete stack
-./deploy.sh
+pulumi login
+pulumi stack init dev   # once
+pulumi config set gcp:project YOUR_GCP_PROJECT_ID
+pulumi config set gcp:region us-central1   # optional
 
-# Your private AI agent will be available at the Cloud Run endpoint
-# All data stays within your GCP project
+# Optional: terraclaw:enable-vector-index, terraclaw:enable-global-lb, terraclaw:image-tag
+
+# First apply may create Artifact Registry then fail on Cloud Run until images exist — that is OK.
+./scripts/deploy.sh
+
+pulumi stack output artifact_registry_docker_prefix
+pulumi stack output artifact_registry_name
+
+# Build and push images (Rust build can take 15–30+ minutes the first time)
+./scripts/build-push.sh YOUR_GCP_PROJECT_ID us-central1 terraclaw-XXXX latest
+
+./scripts/deploy.sh
 ```
 
-Detailed setup instructions and configuration options coming in Phase 4.
+Set provider secrets on the ZeroClaw Cloud Run service (e.g. `OPENAI_API_KEY` for OpenAI-compatible endpoints, or ZeroClaw-specific auth) via Secret Manager or `gcloud run services update` — the stack wires `OPENAI_BASE_URL` to your private vLLM service.
+
+**Note:** Leave `terraclaw:enable-global-lb` false until you attach a **managed SSL certificate** and DNS; the load balancer HTTPS proxy requires certificates. Use the default Cloud Run URLs from `pulumi stack output` for development.
 
 ---
 
