@@ -214,7 +214,7 @@ zeroclaw_service = gcp.cloudrunv2.Service(
     "zeroclaw-runtime", 
     name=pulumi.Output.concat("terraclaw-zeroclaw-", suffix),
     location=region,
-    template=gcp.cloudrunv2.ServiceTemplateScalingArgs(
+    template=gcp.cloudrunv2.ServiceTemplateArgs(
         service_account=zeroclaw_sa.email,
         scaling=gcp.cloudrunv2.ServiceTemplateScalingArgs(
             min_instance_count=min_instances,
@@ -318,6 +318,12 @@ if enable_self_learning:
                         gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                             name="GCP_PROJECT",
                             value=project_id
+                        )
+                    ],
+                    ports=[
+                        gcp.cloudrunv2.ServiceTemplateContainerPortArgs(
+                            name="http1",
+                            container_port=8080
                         )
                     ]
                 )
