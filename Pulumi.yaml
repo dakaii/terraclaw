@@ -1,0 +1,47 @@
+name: terraclaw
+runtime: python
+description: Infrastructure as Code for Private AI Agents
+
+template:
+  config:
+    gcp:project:
+      description: The Google Cloud project to deploy to
+    gcp:region:
+      description: The Google Cloud region to deploy to
+      default: us-central1
+    
+    terraclaw:deepseek-model:
+      description: DeepSeek model variant to deploy
+      default: deepseek-r1-distill-llama-8b
+    
+    terraclaw:instance-count:
+      description: Minimum number of ZeroClaw instances
+      default: 0
+    
+    terraclaw:max-instances:
+      description: Maximum number of instances for auto-scaling
+      default: 10
+    
+    terraclaw:memory-limit:
+      description: Memory limit for ZeroClaw containers
+      default: 1Gi
+    
+    terraclaw:cpu-limit:
+      description: CPU limit for ZeroClaw containers 
+      default: 1000m
+    
+    terraclaw:gpu-type:
+      description: GPU type for DeepSeek inference
+      default: nvidia-l4
+    
+    terraclaw:enable-self-learning:
+      description: Enable automated self-learning reflection jobs
+      default: true
+    
+    terraclaw:learning-schedule:
+      description: Cron schedule for reflection jobs (UTC)
+      default: "0 2 * * *"  # Daily at 2 AM UTC
+    
+    terraclaw:vector-search-dimensions:
+      description: Vector dimensions for RAG embeddings
+      default: 768
