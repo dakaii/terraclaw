@@ -30,6 +30,11 @@ enabled = ${WHATSAPP_ENABLED:-false}
 [tools.web_search]
 provider = "${SEARCH_PROVIDER:-tavily}"
 api_key = "${TAVILY_API_KEY:-${SERPER_API_KEY}}"
+
+[[mcp.servers]]
+name = "Terraclaw Brain"
+type = "sse"
+url = "${REFLECTION_SERVICE_URL:-http://reflection:8080}/mcp/sse"
 EOF
 fi
 

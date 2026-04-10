@@ -289,6 +289,10 @@ zeroclaw_service = gcp.cloudrunv2.Service(
                         value=pulumi.Output.concat(deepseek_service.uri, "/v1"),
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="REFLECTION_SERVICE_URL",
+                        value=reflection_service.uri if reflection_service else "",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="LITESTREAM_BUCKET",
                         value=storage_bucket.name,
                     ),
