@@ -78,7 +78,24 @@ storage_bucket = gcp.storage.Bucket(
 )
 
 # -----------------------------------------------------------------------------
-# 2. Service accounts
+# 2. Secrets (Secret Manager)
+# -----------------------------------------------------------------------------
+def _create_secret(name: str) -> gcp.secretmanager.Secret:
+    return gcp.secretmanager.Secret(
+        f"terraclaw-secret-{name}",
+        secret_id=pulumi.Output.concat(f"terraclaw-{name}-", suffix),
+        replication=gcp.secretmanager.SecretReplicationArgs(
+            auto=gcp.secretmanager.SecretReplicationAutoArgs(),
+        ),
+    )
+
+
+telegram_secret = _create_secret("telegram-token")
+tavily_secret = _create_secret("tavily-key")
+serper_secret = _create_secret("serper-key")
+
+# -----------------------------------------------------------------------------
+# 3. Service accounts
 # -----------------------------------------------------------------------------
 zeroclaw_sa = gcp.serviceaccount.Account(
     "zeroclaw-service-account",
@@ -113,8 +130,24 @@ reflection_bucket_iam = gcp.storage.BucketIAMMember(
     member=reflection_sa.email.apply(lambda e: f"serviceAccount:{e}"),
 )
 
+def _grant_secret_access(name: str, secret: gcp.secretmanager.Secret, sa: gcp.serviceaccount.Account):
+    return gcp.secretmanager.SecretIamMember(
+        f"{name}-access",
+        secret_id=secret.id,
+        role="roles/secretmanager.secretAccessor",
+        member=sa.email.apply(lambda e: f"serviceAccount:{e}"),
+    )
+
+
+_ = _grant_secret_access("zeroclaw-telegram", telegram_secret, zeroclaw_sa)
+_ = _grant_secret_access("zeroclaw-tavily", tavily_secret, zeroclaw_sa)
+_ = _grant_secret_access("zeroclaw-serper", serper_secret, zeroclaw_sa)
+
+_ = _grant_secret_access("reflection-tavily", tavily_secret, reflection_sa)
+_ = _grant_secret_access("reflection-serper", serper_secret, reflection_sa)
+
 # -----------------------------------------------------------------------------
-# 3. Artifact Registry
+# 5. Artifact Registry
 # -----------------------------------------------------------------------------
 artifact_registry = gcp.artifactregistry.Repository(
     "terraclaw-registry",
@@ -266,19 +299,34 @@ zeroclaw_service = gcp.cloudrunv2.Service(
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="TAVILY_API_KEY",
-                        value=cfg.get_secret("tavily-api-key") or "dummy",
+                        value_source=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceArgs(
+                            secret_key_ref=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceSecretKeyRefArgs(
+                                secret=tavily_secret.secret_id,
+                                version="latest",
+                            )
+                        ),
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="SERPER_API_KEY",
-                        value=cfg.get_secret("serper-api-key") or "dummy",
+                        value_source=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceArgs(
+                            secret_key_ref=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceSecretKeyRefArgs(
+                                secret=serper_secret.secret_id,
+                                version="latest",
+                            )
+                        ),
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="TELEGRAM_BOT_TOKEN",
-                        value=cfg.get_secret("telegram-bot-token") or "dummy",
+                        value_source=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceArgs(
+                            secret_key_ref=gcp.cloudrunv2.ServiceTemplateContainerEnvValueSourceSecretKeyRefArgs(
+                                secret=telegram_secret.secret_id,
+                                version="latest",
+                            )
+                        ),
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="TELEGRAM_ENABLED",
-                        value="true" if cfg.get_secret("telegram-bot-token") else "false",
+                        value="true",
                     ),
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="WHATSAPP_ENABLED",
@@ -558,6 +606,31 @@ pulumi.export("enable_vector_index", enable_vector_index)
 
 if global_ip:
     pulumi.export("global_lb_ip", global_ip.address)
+
+if vector_search_index:
+    pulumi.export("vector_search_index", vector_search_index.name)
+
+if reflection_service:
+    pulumi.export("reflection_service_url", reflection_service.uri)
+
+pulumi.export(
+    "deploy_hint",
+    pulumi.Output.concat(
+        "Build and push images (after first apply creates Artifact Registry):\n",
+        "  ./scripts/build-push.sh ",
+        project_id,
+        " ",
+        region,
+        " ",
+        artifact_registry.repository_id,
+        " ",
+        image_tag,
+        "\n",
+        "Re-run: pulumi up\n",
+        "If the first apply fails on Cloud Run (missing images), push images then apply again.",
+    ),
+)
+s)
 
 if vector_search_index:
     pulumi.export("vector_search_index", vector_search_index.name)

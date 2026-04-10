@@ -8,44 +8,101 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from google.cloud import storage
+from google.cloud import storage, aiplatform
+from google.cloud.aiplatform.models import TextEmbeddingModel
 from openai import AsyncOpenAI
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("knowledge-engine")
+
+
+class VectorStore:
+    def __init__(self, project: str, location: str, index_name: str):
+        self.project = project
+        self.location = location
+        self.index_name = index_name
+        if project and location:
+            aiplatform.init(project=project, location=location)
+            try:
+                self.model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+            except Exception as e:
+                logger.warning(f"Could not load embedding model: {e}")
+                self.model = None
+        else:
+            self.model = None
+
+    async def push_facts(self, facts: list[str]):
+        """Embed facts and push them to GCS for Vertex AI Vector Search sync."""
+        if not facts or not self.model:
+            logger.warning("No facts to push or embedding model not loaded.")
+            return
+
+        logger.info(f"Pushing {len(facts)} facts to Vertex Index: {self.index_name}")
+        
+        # Batch embedding (handle small batches for stability)
+        embeddings = self.model.get_embeddings(facts)
+        
+        bucket_name = os.environ.get("LITESTREAM_BUCKET")
+        if not bucket_name:
+            logger.error("LITESTREAM_BUCKET not set, cannot push to Vector Search.")
+            return
+
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        
+        data = []
+        for i, (fact, emb) in enumerate(zip(facts, embeddings)):
+            data.append({
+                "id": f"fact-{datetime.now().strftime('%Y%m%d')}-{i}",
+                "embedding": emb.values,
+                "metadata": {"text": fact}
+            })
+            
+        blob = bucket.blob(f"vector-index/update-{datetime.now().timestamp()}.jsonl")
+        blob.upload_from_string("\n".join([json.dumps(d) for d in data]))
+        logger.info(f"Uploaded {len(data)} embeddings to GCS for Vertex AI sync.")
+
 
 class KnowledgeEngine:
     def __init__(self):
         self.bucket_name = os.environ.get("LITESTREAM_BUCKET")
         self.db_path = "/tmp/reflection_memory.db"
         self.openai_base_url = os.environ.get("OPENAI_BASE_URL")
+        self.project = os.environ.get("GCP_PROJECT")
+        self.location = os.environ.get("GCP_REGION", "us-central1")
+        self.index_name = os.environ.get("VECTOR_SEARCH_INDEX")
+        
         self.client = AsyncOpenAI(
             base_url=self.openai_base_url,
             api_key="dummy"
         )
+        self.vector_store = VectorStore(self.project, self.location, self.index_name)
 
     async def sync_database(self):
-        """Download the latest SQLite DB from GCS."""
+        """Use litestream restore to get the latest SQLite DB."""
         if not self.bucket_name:
             logger.warning("LITESTREAM_BUCKET not set, skipping DB sync")
             return False
 
-        logger.info(f"Downloading memory.db from gs://{self.bucket_name}/zeroclaw-memory")
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(self.bucket_name)
-        # Note: Litestream stores the main DB at the root of the path
-        blob = bucket.blob("zeroclaw-memory/data") # This depends on Litestream's pathing
+        replica_url = f"gs://{self.bucket_name}/zeroclaw-memory"
+        logger.info(f"Restoring database from {replica_url}")
         
-        # If the exact path is complex, we might need to list blobs or use litestream restore
-        # For now, we assume a direct download is possible or we'd use 'litestream restore'
+        import subprocess
         try:
-            blob.download_to_filename(self.db_path)
+            # -if-not-exists ensures we don't overwrite if not needed, 
+            # but for reflection we usually want the freshest data.
+            subprocess.run([
+                "litestream", "restore", 
+                "-o", self.db_path, 
+                replica_url
+            ], check=True)
             return True
-        except Exception as e:
-            logger.error(f"Failed to download DB: {e}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Litestream restore failed: {e}")
             return False
 
     async def extract_recent_interactions(self, hours: int = 24) -> list[dict[str, Any]]:
@@ -57,18 +114,14 @@ class KnowledgeEngine:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Assuming ZeroClaw schema (messages, tool_calls, observations)
-        # We'll use a generic query that looks for recent entries
         since = (datetime.now() - timedelta(hours=hours)).isoformat()
         
         interactions = []
         try:
-            # This is a heuristic query - exact schema may vary
             cursor.execute("SELECT * FROM messages WHERE created_at > ?", (since,))
             interactions = [dict(row) for row in cursor.fetchall()]
         except sqlite3.OperationalError:
             logger.warning("Could not find 'messages' table, trying alternative schema...")
-            # Fallback to general investigation of tables if schema is unknown
         finally:
             conn.close()
 
@@ -79,7 +132,6 @@ class KnowledgeEngine:
         if not interactions:
             return []
 
-        # Convert interactions to a readable string for the LLM
         log_text = "\n".join([f"{i.get('role')}: {i.get('content')}" for i in interactions[:50]])
 
         prompt = f"""
@@ -115,9 +167,8 @@ class KnowledgeEngine:
 
         facts = await self.synthesize(interactions)
         
-        # TODO: Push to Vertex AI Vector Search
-        # For now, we log them
-        for fact in facts:
-            logger.info(f"Synthesized Fact: {fact}")
-
-        return f"Successfully synthesized {len(facts)} new facts."
+        if facts:
+            await self.vector_store.push_facts(facts)
+            return f"Successfully synthesized and indexed {len(facts)} new facts."
+        
+        return "No new facts identified for synthesis."
