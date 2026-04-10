@@ -261,6 +261,30 @@ zeroclaw_service = gcp.cloudrunv2.Service(
                 ),
                 env=[
                     gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="SEARCH_PROVIDER",
+                        value=cfg.get("search-provider") or "tavily",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="TAVILY_API_KEY",
+                        value=cfg.get_secret("tavily-api-key") or "dummy",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="SERPER_API_KEY",
+                        value=cfg.get_secret("serper-api-key") or "dummy",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="TELEGRAM_BOT_TOKEN",
+                        value=cfg.get_secret("telegram-bot-token") or "dummy",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="TELEGRAM_ENABLED",
+                        value="true" if cfg.get_secret("telegram-bot-token") else "false",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                        name="WHATSAPP_ENABLED",
+                        value=cfg.get("whatsapp-enabled") or "false",
+                    ),
+                    gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                         name="OPENAI_BASE_URL",
                         value=pulumi.Output.concat(deepseek_service.uri, "/v1"),
                     ),
@@ -341,6 +365,18 @@ if enable_self_learning:
                         }
                     ),
                     env=[
+                        gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                            name="SEARCH_PROVIDER",
+                            value=cfg.get("search-provider") or "tavily",
+                        ),
+                        gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                            name="TAVILY_API_KEY",
+                            value=cfg.get_secret("tavily-api-key") or "dummy",
+                        ),
+                        gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
+                            name="SERPER_API_KEY",
+                            value=cfg.get_secret("serper-api-key") or "dummy",
+                        ),
                         gcp.cloudrunv2.ServiceTemplateContainerEnvArgs(
                             name="OPENAI_BASE_URL",
                             value=pulumi.Output.concat(deepseek_service.uri, "/v1"),
