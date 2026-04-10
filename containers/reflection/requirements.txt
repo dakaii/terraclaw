@@ -3,3 +3,6 @@ uvicorn
 httpx
 mcp[sse]>=1.2.0
 python-dotenv
+google-cloud-storage
+openai
+pandas

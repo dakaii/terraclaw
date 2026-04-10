@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from mcp.server.sse import SseServerTransport
 from search_service import get_search_provider
 from mcp_server import mcp_server
+from knowledge_engine import KnowledgeEngine
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("reflection")
@@ -24,6 +25,7 @@ app = FastAPI(title="Terraclaw Reflection & MCP", version="0.1.0")
 
 # Setup SSE Transport for MCP
 sse_transport = SseServerTransport("/mcp/messages")
+engine = KnowledgeEngine()
 
 
 @app.get("/health")
@@ -51,24 +53,16 @@ async def mcp_messages_endpoint(request: Request):
 
 @app.post("/run")
 async def run_reflection() -> dict[str, str]:
-    bucket = os.environ.get("LITESTREAM_BUCKET", "")
-    llm = os.environ.get("OPENAI_BASE_URL", "")
-
-    search = get_search_provider()
-    results = await search.search("What is the current state of Terraclaw AI?")
-
-    log.info("reflection run bucket=%s openai_base=%s search_results=%d",
-             bucket, llm, len(results))
-
-    # TODO:
-    # 1. litestream restore (restore the latest SQLite DB from GCS)
-    # 2. sqlite query (extract today's interactions/web-crawls)
-    # 3. LLM call (summarize knowledge into new facts)
-    # 4. vertex index update (push new facts to RAG)
-    # 5. gcs writeback (backup summarized/pruned DB)
-
-    return {
-        "status": "ok",
-        "detail": f"Knowledge synthesized from {len(results)} search results.",
-        "search_used": type(search).__name__
-    }
+    """Execute the daily knowledge synthesis loop."""
+    try:
+        status = await engine.run_loop()
+        return {
+            "status": "ok",
+            "detail": status
+        }
+    except Exception as e:
+        log.error(f"Reflection loop failed: {e}")
+        return {
+            "status": "error",
+            "detail": str(e)
+        }
